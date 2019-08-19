@@ -1,11 +1,13 @@
 import numpy as np
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader # Dataset定义数据集,对数据的操作, DataLoader定义怎么拿数据
 from torchvision import transforms
 import os
 
 all_normalized_pslices = np.load(r'./pre_normalized_pslices.npy', allow_pickle=True)
 pid_to_label = np.load(r'./pid_to_label_one.npy', allow_pickle=True).tolist()
+BATCH_size = 4
+NUM_WORKS = 2
 # 到时候还是按照label的顺序来读取好了，免得各种原因顺序乱了
 
 class custom_dataset(Dataset):
@@ -49,5 +51,15 @@ p_dataset = custom_dataset(
     pid_to_label,
     transform=transforms.Compose([
         to_tensor()
-    ]))
-print(p_dataset[0])
+    ])) # dataset.transform -> trainsform.Compose([func...])->func.__call__() // 注意下funcs之间参数的传递
+
+p_dataloader = DataLoader(
+    p_dataset,
+    batch_size=BATCH_size,
+    shuffle=False, # label的分布已经random的了? TODO need to check out
+ #   num_workers=NUM_WORKS
+)
+
+for i, p_slices_batch in enumerate(p_dataloader):
+    print("i:{0}, p_slices_batch:{1}".format(i, p_slices_batch))
+    break
