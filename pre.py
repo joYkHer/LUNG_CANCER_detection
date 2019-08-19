@@ -1,7 +1,7 @@
 import os, pydicom, cv2
 import numpy as np # numpy.reshape 和 cv2.resize差别，numpy：shape相乘不变， cv2 可变，从图上看就是图片缩小了
 
-pid_to_label = np.load('pid_to_label_one.npy')
+pid_to_label = np.load('pid_to_label_one.npy', allow_pickle=True)
 new_pic_size = 128 # 最好2^n
 scaled_z_hat = 20 # changeable, of course
 '''
@@ -105,13 +105,40 @@ class z_hat_scaler(object):
         self.scale_z_hat()
         self.pslices_scared = np.asarray(self.pslices_scared)
 
-if __name__ == '__main__': # dcm文件可能有shape的metadata
-    pslices = resize_one_patient_slices(new_pic_size,load_slices(pid= one_patient_producer()))
-    #pslices = load_slices(pid=one_patient_producer())
-    pslices = unk_to_air(pslices)
-    pslices_scaler = z_hat_scaler(pslices, scaled_z_hat)
+def all_opers_for_one_patient(pid, new_pic_size = new_pic_size, scaled_z_hat = scaled_z_hat):
+    '''
+    将所有对一个patient的slices的操作合在一起
+    :return: 返回的是三维数值
+    '''
+    pslices_scaler = z_hat_scaler(
+        unk_to_air(resize_one_patient_slices(new_pic_size, load_slices(pid=pid))),
+        scaled_z_hat)
     pslices_scaler.scale_run()
-    print(pslices_scaler.pslices_scared)
-    print(pslices_scaler.pslices_scared.shape)
+    print("oopss")
+    return pslices_scaler.pslices_scared
+
+def pre_patients_slices_all(path = r'./stage1', z_hat_scaled = scaled_z_hat, new_pic_size = new_pic_size):
+    '''
+    对所有的patients的slices进行 resize, unk_to_air, z_hat_scaled操作
+    :return: 四维的数组, 里面一个三维的就是一个patient
+    '''
+    all_patients = os.listdir(path)
+    res = [ all_opers_for_one_patient(pid,new_pic_size,z_hat_scaled)
+        for pid in all_patients
+    ]
+    return np.asarray(res)
+
+def save_pred_pslices():
+    np.save('pre_pslices.npy', pre_patients_slices_all(), allow_pickle=True)
+
+if __name__ == '__main__': # dcm文件可能有shape的metadata
+    # pslices = resize_one_patient_slices(new_pic_size,load_slices(pid= one_patient_producer()))
+    # #pslices = load_slices(pid=one_patient_producer())
+    # pslices = unk_to_air(pslices)
+    # pslices_scaler = z_hat_scaler(pslices, scaled_z_hat)
+    # pslices_scaler.scale_run()
+    # print(pslices_scaler.pslices_scared)
+    # print(pslices_scaler.pslices_scared.shape)
 
     # one_patient_producer() -> load_slices() -> resize_one_patient_slices() -> unk_to_air() -> z_hat_scaler.scale_run()
+    save_pred_pslices()
