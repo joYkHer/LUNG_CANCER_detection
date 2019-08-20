@@ -4,12 +4,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader # Dataset定义数据集,对数据的操作, DataLoader定义怎么拿数据
 from torchvision import transforms
-from torch.autograd import Variable
 import os
 
 all_normalized_pslices = np.load(r'./pre_normalized_pslices.npy', allow_pickle=True)
 pid_to_label = np.load(r'./pid_to_label_one.npy', allow_pickle=True).tolist()
-BATCH_size = 4
+BATCH_SIZE = 4
 NUM_WORKS = 2
 new_pic_size = 128
 scaled_z_hat = 20 # 这两个整个项目保持同步
@@ -61,7 +60,7 @@ p_dataset = custom_dataset(
 
 p_dataloader = DataLoader(
     p_dataset,
-    batch_size=BATCH_size,
+    batch_size=BATCH_SIZE,
     shuffle=False, # label的分布已经random的了? TODO need to check out
  #   num_workers=NUM_WORKS
 )
@@ -70,51 +69,61 @@ p_dataloader = DataLoader(
 class BaseLineNet(nn.Module):
     def __init__(self):
         super(BaseLineNet, self).__init__()
-        # self.classconv = nn.Sequential(
-        #     nn.Conv3d(1, 16, 4, stride=2),
-        #     # nn.ReLU(), # relu? tissue变air?不太好吧..
-        #     nn.MaxPool3d(2, 2),
-        #     nn.Conv3d(16, 64, 4, stride=2),
-        #     nn.MaxPool3d(2, 2),
-        #     nn.Conv3d(64, 128, 4, stride=2),
-        #     nn.ReLU(),
-        #     nn.MaxPool3d(2, 2)
-        # )
+        self.classconv = nn.Sequential(
+            nn.Conv3d(1, 16, (1,2,2), stride=2),
+            # nn.ReLU(), # relu? tissue变air?不太好吧..
+            nn.MaxPool3d(2, 2),
+            nn.Conv3d(16, 64, (1,2,2), stride=2),
+            nn.MaxPool3d(2, 2),
+            nn.Conv3d(64, 128, (1,2,2), stride=2),
+            nn.ReLU(),
+            nn.MaxPool3d(2, 2)
+        )
+        # torch.Size([4, 128, 1, 2, 2])
+        self.fullconnect = nn.Sequential(
+            nn.Linear(128*1*2*2,128),
+            nn.Dropout(0.5),
+            nn.Linear(128,32),
+            nn.Linear(32,1)
+        )
 
-        self.conv1 = nn.Conv3d(1, 16, (1,2,2), stride=2)
-        # nn.ReLU(), # relu? tissue变air?不太好吧..
-        self.pool = nn.MaxPool3d(2, 2)
-        self.conv2 = nn.Conv3d(16, 64, (1,2,2), stride=2)
-        #nn.MaxPool3d(2, 2),
-        self.conv3 = nn.Conv3d(64, 128, (1,2,2), stride=2)
-        #nn.ReLU(),
-        #nn.MaxPool3d(2, 2)
+    # def float_to_double(self, mod_and_mod_to_handle): # float64 就是double
+    #     mod, mod_to_handle = mod_and_mod_to_handle
+    #     if isinstance(mod, mod_to_handle):
+    #         mod.weight, mod.bias = nn.Parameter(mod.weight.double()), nn.Parameter(mod.bias.double())
+    #
+    # def modules_float_to_double(self, modules, mod_to_handle):
+    #     # 这里也不需要map的返回值, 只要操作
+    #     map(self.float_to_double,zip(modules, [mod_to_handle]*len(modules)))
+    #
+    # def weight_init(self):
+    #     self.modules_float_to_double(self.classconv, nn.Conv3d)
+    #     self.modules_float_to_double(self.fullconnect, nn.Linear)
+    # map function is definitly a sad story, it seems change nothing, only variables the functions return care.
+    # map函数看起来不改变任何原有变量，要获得函数处理的数值，就要定义在map里面的fun函数return的变量, var = map(...),list(map(...))也是， ps zip()返回的其实是list
 
-        # self.fullconnect = nn.Sequential(
-        #     nn.Linear()
-        # )
+    def float_to_double(self, module, type_to_handle):
+        if isinstance(module, type_to_handle):
+            module.weight, module.bias = nn.Parameter(module.weight.double()), nn.Parameter(module.bias.double())
+
+    def modules_float_to_double(self, modules, mod_to_handle):
+        for mod in modules: self.float_to_double(mod, mod_to_handle)
+
     def weight_init(self):
-        for mod in self.modules():
-            if isinstance(mod, nn.Conv3d):
-                mod.weight = nn.Parameter(mod.weight.double())
-                mod.bias = nn.Parameter(mod.bias.double())
+        self.modules_float_to_double(self.classconv, nn.Conv3d)
+        self.modules_float_to_double(self.fullconnect, nn.Linear)
 
     def forward(self, pslices):
         self.weight_init()
-        x = self.conv1(pslices)
-        x = self.pool(x)
-        x = self.conv2(x)
-        x = self.pool(x)
-        x = self.conv3(x)
-        x = F.relu(x)
-        x = self.pool(x)
-        return x
+        x = self.classconv(pslices)
+        x = x.view(BATCH_SIZE, -1)
+        x = self.fullconnect(x)
+        return F.sigmoid(x)
 
-# torch.Size([4, 128, 1, 2, 2])
 
 baseline = BaseLineNet()
 for p_slices_label_batch in p_dataloader:
-    print(baseline(p_slices_label_batch['slices']).shape)
+    print(baseline(p_slices_label_batch['slices']))
     break
     # print(p_slices_label_batch['slices'].type(torch.DoubleTensor))
     # break
