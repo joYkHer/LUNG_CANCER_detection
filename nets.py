@@ -1,13 +1,18 @@
 import numpy as np
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader # Dataset定义数据集,对数据的操作, DataLoader定义怎么拿数据
 from torchvision import transforms
+from torch.autograd import Variable
 import os
 
 all_normalized_pslices = np.load(r'./pre_normalized_pslices.npy', allow_pickle=True)
 pid_to_label = np.load(r'./pid_to_label_one.npy', allow_pickle=True).tolist()
 BATCH_size = 4
 NUM_WORKS = 2
+new_pic_size = 128
+scaled_z_hat = 20 # 这两个整个项目保持同步
 # 到时候还是按照label的顺序来读取好了，免得各种原因顺序乱了
 
 class custom_dataset(Dataset):
@@ -43,7 +48,8 @@ class to_tensor(object):
         # numpy image: H x W x C
         # torch image: C X H X W
         # TODO need to check out, codes below too
-        return {'slices':torch.from_numpy(pslices), 'label': torch.tensor(int(label))}
+        pslices = np.reshape(pslices, (1,scaled_z_hat,new_pic_size,new_pic_size)) # 灰度图, Channel为1
+        return {'slices':torch.from_numpy(pslices).type(torch.DoubleTensor), 'label': torch.tensor(int(label))}
 
 
 p_dataset = custom_dataset(
@@ -60,6 +66,55 @@ p_dataloader = DataLoader(
  #   num_workers=NUM_WORKS
 )
 
-for i, p_slices_batch in enumerate(p_dataloader):
-    print("i:{0}, p_slices_batch:{1}".format(i, p_slices_batch))
+# p_slices_batch:torch.Size([4, 1, 20, 128, 128])
+class BaseLineNet(nn.Module):
+    def __init__(self):
+        super(BaseLineNet, self).__init__()
+        # self.classconv = nn.Sequential(
+        #     nn.Conv3d(1, 16, 4, stride=2),
+        #     # nn.ReLU(), # relu? tissue变air?不太好吧..
+        #     nn.MaxPool3d(2, 2),
+        #     nn.Conv3d(16, 64, 4, stride=2),
+        #     nn.MaxPool3d(2, 2),
+        #     nn.Conv3d(64, 128, 4, stride=2),
+        #     nn.ReLU(),
+        #     nn.MaxPool3d(2, 2)
+        # )
+
+        self.conv1 = nn.Conv3d(1, 16, (1,2,2), stride=2)
+        # nn.ReLU(), # relu? tissue变air?不太好吧..
+        self.pool = nn.MaxPool3d(2, 2)
+        self.conv2 = nn.Conv3d(16, 64, (1,2,2), stride=2)
+        #nn.MaxPool3d(2, 2),
+        self.conv3 = nn.Conv3d(64, 128, (1,2,2), stride=2)
+        #nn.ReLU(),
+        #nn.MaxPool3d(2, 2)
+
+        # self.fullconnect = nn.Sequential(
+        #     nn.Linear()
+        # )
+    def weight_init(self):
+        for mod in self.modules():
+            if isinstance(mod, nn.Conv3d):
+                mod.weight = nn.Parameter(mod.weight.double())
+                mod.bias = nn.Parameter(mod.bias.double())
+
+    def forward(self, pslices):
+        self.weight_init()
+        x = self.conv1(pslices)
+        x = self.pool(x)
+        x = self.conv2(x)
+        x = self.pool(x)
+        x = self.conv3(x)
+        x = F.relu(x)
+        x = self.pool(x)
+        return x
+
+# torch.Size([4, 128, 1, 2, 2])
+
+baseline = BaseLineNet()
+for p_slices_label_batch in p_dataloader:
+    print(baseline(p_slices_label_batch['slices']).shape)
     break
+    # print(p_slices_label_batch['slices'].type(torch.DoubleTensor))
+    # break
