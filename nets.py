@@ -2,16 +2,21 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader # Dataset定义数据集,对数据的操作, DataLoader定义怎么拿数据
 from torchvision import transforms
 import os
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 all_normalized_pslices = np.load(r'./pre_normalized_pslices.npy', allow_pickle=True)
-pid_to_label = np.load(r'./pid_to_label_one.npy', allow_pickle=True).tolist()
+pid_to_label = np.load(r'./pid_to_label_one.npy', allow_pickle=True).tolist() # 字典保存为npy文件, np.load()的时候只要tolist()就从array变回字典了,很神奇
 BATCH_SIZE = 4
 NUM_WORKS = 2
 new_pic_size = 128
 scaled_z_hat = 20 # 这两个整个项目保持同步
+LEARNING_RATE = 1e-3
+EPOCH = 10 # TODO headache
 # 到时候还是按照label的顺序来读取好了，免得各种原因顺序乱了
 
 class custom_dataset(Dataset):
@@ -121,9 +126,27 @@ class BaseLineNet(nn.Module):
         return F.sigmoid(x)
 
 
-baseline = BaseLineNet()
-for p_slices_label_batch in p_dataloader:
-    print(baseline(p_slices_label_batch['slices']))
-    break
+baseline = BaseLineNet().to(device)
+optimizer = optim.Adam(baseline.parameters(), lr=LEARNING_RATE)
+
+def train_baseline(epoch):
+    baseline.train()
+    for batch_id, pslices_and_label_batch in enumerate(p_dataloader):
+        pslices_batch, label_batch = pslices_and_label_batch['slices'].to(device), pslices_and_label_batch['label'].to(device)
+        optimizer.zero_grad()
+        batch_output = baseline(pslices_batch)
+        loss = F.cross_entropy(batch_output, label_batch) # TODO checkout loss += ?
+        loss.backward()
+        optimizer.step()
+        if batch_id % 30 == 0:
+            print('Train Epoch:{0}, batch_id:{1}, loss:{2}'.format(epoch, batch_id, loss))
+
+if __name__=="__main__":
+    for i in range(EPOCH):
+        train_baseline(i)
+
+# for p_slices_label_batch in p_dataloader:
+#     print(baseline(p_slices_label_batch['slices']))
+#     break
     # print(p_slices_label_batch['slices'].type(torch.DoubleTensor))
     # break
