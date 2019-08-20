@@ -11,11 +11,11 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 all_normalized_pslices = np.load(r'./pre_normalized_pslices.npy', allow_pickle=True)
 pid_to_label = np.load(r'./pid_to_label_one.npy', allow_pickle=True).tolist() # 字典保存为npy文件, np.load()的时候只要tolist()就从array变回字典了,很神奇
-BATCH_SIZE = 5 # 205 能整除5
+BATCH_SIZE = 41 # 205 能整除5
 NUM_WORKS = 2
 new_pic_size = 128
 scaled_z_hat = 20 # 这两个整个项目保持同步
-LEARNING_RATE = 1e-3
+LEARNING_RATE = 0.0001
 EPOCH = 10 # TODO headache
 # 到时候还是按照label的顺序来读取好了，免得各种原因顺序乱了
 
@@ -109,6 +109,7 @@ class BaseLineNet(nn.Module):
 
     def float_to_double(self, module, type_to_handle):
         if isinstance(module, type_to_handle):
+            module.weight.data = torch.from_numpy(np.random.normal(0,0.5, size=module.weight.shape))
             module.weight, module.bias = nn.Parameter(module.weight.double()), nn.Parameter(module.bias.double())
 
     def modules_float_to_double(self, modules, mod_to_handle):
@@ -145,6 +146,7 @@ def train_baseline(epoch):
 if __name__=="__main__":
     for i in range(EPOCH):
         train_baseline(i)
+        print()
 
 # for p_slices_label_batch in p_dataloader:
 #     print(baseline(p_slices_label_batch['slices']))
