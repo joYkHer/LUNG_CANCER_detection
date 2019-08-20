@@ -11,7 +11,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 all_normalized_pslices = np.load(r'./pre_normalized_pslices.npy', allow_pickle=True)
 pid_to_label = np.load(r'./pid_to_label_one.npy', allow_pickle=True).tolist() # 字典保存为npy文件, np.load()的时候只要tolist()就从array变回字典了,很神奇
-BATCH_SIZE = 4
+BATCH_SIZE = 5 # 205 能整除5
 NUM_WORKS = 2
 new_pic_size = 128
 scaled_z_hat = 20 # 这两个整个项目保持同步
@@ -53,7 +53,7 @@ class to_tensor(object):
         # torch image: C X H X W
         # TODO need to check out, codes below too
         pslices = np.reshape(pslices, (1,scaled_z_hat,new_pic_size,new_pic_size)) # 灰度图, Channel为1
-        return {'slices':torch.from_numpy(pslices).type(torch.DoubleTensor), 'label': torch.tensor(int(label))}
+        return {'slices':torch.from_numpy(pslices).type(torch.DoubleTensor), 'label': torch.tensor(int(label)).double()}
 
 
 p_dataset = custom_dataset(
@@ -123,7 +123,7 @@ class BaseLineNet(nn.Module):
         x = self.classconv(pslices)
         x = x.view(BATCH_SIZE, -1)
         x = self.fullconnect(x)
-        return F.sigmoid(x)
+        return torch.sigmoid(x)
 
 
 baseline = BaseLineNet().to(device)
@@ -134,11 +134,12 @@ def train_baseline(epoch):
     for batch_id, pslices_and_label_batch in enumerate(p_dataloader):
         pslices_batch, label_batch = pslices_and_label_batch['slices'].to(device), pslices_and_label_batch['label'].to(device)
         optimizer.zero_grad()
-        batch_output = baseline(pslices_batch)
-        loss = F.cross_entropy(batch_output, label_batch) # TODO checkout loss += ?
+        batch_output = baseline(pslices_batch).view(BATCH_SIZE)
+        loss = F.binary_cross_entropy(batch_output, label_batch) # TODO checkout loss += 每个batch,loss都重新计算?
+        # F.binary_cross_entropy() 对应二分类, F.cross_entropy() 多分类?
         loss.backward()
         optimizer.step()
-        if batch_id % 30 == 0:
+        if batch_id % 10 == 0:
             print('Train Epoch:{0}, batch_id:{1}, loss:{2}'.format(epoch, batch_id, loss))
 
 if __name__=="__main__":
